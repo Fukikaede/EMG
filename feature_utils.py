@@ -58,12 +58,12 @@ def featureVAR(data):
 
 #Willision幅值WA
 def featureWA(data,threshold=10e-7):
-    return sum(np.where(np.diff(data, axis=0) > threshold, 1, 0))/data.shape[0]
+    return np.sum(np.where(np.diff(data, axis=0) > threshold, 1, 0), axis=0) / data.shape[0]
 
 
 #幅值立方均值
 def featureMCV(data):
-    return sum(data**3)/data.shape[0]
+    return np.sum(data**3, axis=0) / data.shape[0]
 
 #平均功率频率
 def featureMPF(data):
@@ -72,7 +72,10 @@ def featureMPF(data):
     for i in range(data.shape[1]):
         f, Pxx = signal.welch(data[:, i], fs, nperseg=200)
         mean_power = np.trapz(Pxx, f)
-        mean_frequency = np.trapz(f * Pxx, f) / mean_power
+        if mean_power <= 0:
+            mean_frequency = 0.0
+        else:
+            mean_frequency = np.trapz(f * Pxx, f) / mean_power
         Pxx_all.append(mean_frequency)
     Pxx_all = np.array(Pxx_all)
     return Pxx_all
@@ -86,8 +89,11 @@ def featureAR(data):
     row = []
     for j in range(data.shape[1]):
         x = data[:, j]
-        AR7_model = AutoReg(x, AR_num).fit()
-        AR_params = AR7_model.params[1:AR_num + 1]
+        if len(x) <= AR_num:
+            AR_params = np.zeros(AR_num)
+        else:
+            AR7_model = AutoReg(x, AR_num).fit()
+            AR_params = AR7_model.params[1:AR_num + 1]
         row.append(AR_params)
     row=np.array(row)
     return row[:,0],row[:,1],row[:,2],row[:,3],row[:,4],row[:,5],row[:,6]
@@ -112,9 +118,12 @@ def featureMF(data):
     Pxx_all = []
     for i in range(data.shape[1]):
         f, Pxx = signal.welch(data[:, i], fs, nperseg=200)
-        mean_power = np.trapz(Pxx, f)
-        #mean_frequency = np.trapz(f * Pxx, f) / mean_power
-        Pxx_all.append(mean_power/2)
+        cumulative = np.cumsum(Pxx)
+        if cumulative[-1] <= 0:
+            Pxx_all.append(0.0)
+            continue
+        median_idx = np.searchsorted(cumulative, cumulative[-1] / 2.0)
+        Pxx_all.append(f[min(median_idx, len(f) - 1)])
     Pxx_all = np.array(Pxx_all)
     return Pxx_all
 
@@ -136,23 +145,23 @@ def featureWPT(data):
     e=[]
     a=[]
     v=[]
-    for i in range(data.shape[1]):
-        wp = pywt.WaveletPacket(data=data[:,i], wavelet='db3',mode='symmetric',maxlevel=3)
+    for ch in range(data.shape[1]):
+        wp = pywt.WaveletPacket(data=data[:,ch], wavelet='db3',mode='symmetric',maxlevel=3)
         n = 3
         re = []  #第n层所有节点的分解系数
-        for i in [node.path for node in wp.get_level(n, 'freq')]:
-            re.append(wp[i].data)
+        for path in [node.path for node in wp.get_level(n, 'freq')]:
+            re.append(wp[path].data)
         #第n层能量特征
         energy = []
-        for i in re:
-            energy.append(pow(np.linalg.norm(i,ord=None),2))
+        for coeff in re:
+            energy.append(pow(np.linalg.norm(coeff,ord=None),2))
         average=[]
         #第n层均值
-        for i in re:
-            average.append(np.average(i))
+        for coeff in re:
+            average.append(np.average(coeff))
         var=[]
-        for i in re:
-            var.append(np.var(i))
+        for coeff in re:
+            var.append(np.var(coeff))
         a.append(average)
         e.append(energy)
         v.append(var)
@@ -160,7 +169,6 @@ def featureWPT(data):
     e=np.array(e)
     v=np.array(v)
     return e[:,0],e[:,1],e[:,2],e[:,3],e[:,4],e[:,5],e[:,6],e[:,7],a[:,0],a[:,1],a[:,2],a[:,3],a[:,4],a[:,5],a[:,6],a[:,7],v[:,0],v[:,1],v[:,2],v[:,3],v[:,4],v[:,5],v[:,6],v[:,7]
-
 
 
 
